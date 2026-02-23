@@ -1,0 +1,10 @@
+config:
+  aws:region: us-east-1
+  lambda-cicd:project_name: myapp
+  lambda-cicd:environment: dev
+  lambda-cicd:github_repo_owner: MyOrg
+  lambda-cicd:github_repo_name: my-lambda
+  lambda-cicd:github_branch: main
+  lambda-cicd:lambda_memory_size: "256"
+  lambda-cicd:lambda_timeout: "30"
+  lambda-cicd:lambda_architecture: x86_64

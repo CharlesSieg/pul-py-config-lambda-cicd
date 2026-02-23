@@ -1,0 +1,6 @@
+name: lambda-cicd
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: CI/CD pipeline for containerized AWS Lambda functions (CodePipeline → CodeBuild → ECR → CodeDeploy → Lambda)

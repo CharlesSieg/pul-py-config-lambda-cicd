@@ -1,4 +1,4 @@
-# Lambda CI/CD Pipeline — Pulumi (Python)
+# Lambda CI/CD Pipeline: Pulumi (Python)
 
 Pulumi Python program for deploying a production CI/CD pipeline for containerized AWS Lambda functions.
 
@@ -8,17 +8,17 @@ Pulumi Python program for deploying a production CI/CD pipeline for containerize
 GitHub → CodeStar Connection → CodePipeline → CodeBuild → ECR → CodeDeploy → Lambda
 ```
 
-This pipeline automates the full lifecycle of a containerized Lambda function: a push to GitHub triggers CodePipeline, which delegates to CodeBuild to build and push a Docker image to ECR, then hands off to CodeDeploy to shift traffic to the new version using a canary deployment strategy. A CloudWatch error alarm monitors the canary window and triggers an automatic rollback if the new version produces errors.
+This pipeline automates the full lifecycle of a containerized Lambda function. A push to GitHub triggers CodePipeline, which delegates to CodeBuild to build and push a Docker image to ECR, then hands off to CodeDeploy to shift traffic to the new version using a canary deployment strategy. A CloudWatch error alarm monitors the canary window and triggers an automatic rollback if the new version produces errors.
 
 ## Design Decisions
 
 ### Why CodePipeline V2 with QUEUED Execution
 
-The pipeline uses a V2 pipeline with QUEUED execution mode rather than the legacy V1 SUPERSEDED mode. SUPERSEDED cancels in-progress deployments when a new commit arrives, which can leave a Lambda alias in an inconsistent state with partial traffic routing mid-shift. QUEUED mode ensures each deployment completes fully — including the CodeDeploy canary window — before the next begins. This is essential for any pipeline that includes traffic-shifting deployments.
+The pipeline uses a V2 pipeline with QUEUED execution mode. SUPERSEDED (V1) cancels in-progress deployments when a new commit arrives, which can leave a Lambda alias in an inconsistent state with partial traffic routing mid-shift. QUEUED mode ensures each deployment completes fully, including the CodeDeploy canary window, before the next begins. This is essential for any pipeline that includes traffic-shifting deployments.
 
 ### Why CodeStar Connections Over OAuth Tokens
 
-CodeStar Connections use an AWS-managed GitHub App installed in your GitHub organization, replacing the older OAuth-based integration that relied on personal access tokens. The benefits are meaningful: push-based event detection (no polling), fine-grained repository-level access control, and no token rotation burden. The one-time manual activation in the AWS Console is a deliberate security measure — AWS will not automatically grant itself access to your repositories.
+CodeStar Connections use an AWS-managed GitHub App installed in your GitHub organization. Compared to the older OAuth-based integration with personal access tokens, CodeStar Connections provide push-based event detection, fine-grained repository-level access control, and automatic credential management. The one-time manual activation in the AWS Console is a deliberate security measure; AWS requires explicit authorization before accessing your repositories.
 
 ### Why Immutable ECR Tags
 
@@ -26,11 +26,11 @@ The ECR repository enforces immutable tags, meaning once an image is pushed with
 
 ### Why CodeDeploy Canary Over AllAtOnce
 
-AllAtOnce deployments shift 100% of traffic immediately to the new version. If the new version has a bug, every request is affected. Canary10Percent5Minutes shifts only 10% of traffic initially and holds for 5 minutes while the CloudWatch error alarm evaluates. If the alarm fires, CodeDeploy reverts the alias to the previous version automatically. The 90% of traffic on the previous version is never affected. This is the single most important safety mechanism in the pipeline.
+AllAtOnce deployments shift 100% of traffic immediately to the new version. If the new version has a bug, every request hits it. Canary10Percent5Minutes shifts only 10% of traffic initially and holds for 5 minutes while the CloudWatch error alarm evaluates. If the alarm fires, CodeDeploy reverts the alias to the previous version automatically. The 90% of traffic on the previous version remains stable throughout. This is the single most important safety mechanism in the pipeline.
 
 ### Why a Separate Error Alarm for Rollback
 
-The CloudWatch metric alarm monitors the Lambda function's `Errors` metric with a threshold of zero and a 60-second evaluation period. This is deliberately sensitive — in a canary window, even a single error warrants investigation. The alarm is associated with the CodeDeploy deployment group's alarm configuration, so CodeDeploy reads the alarm state during the canary window and triggers rollback automatically. You can adjust the threshold based on your function's baseline error rate, but starting at zero forces clean deployments.
+The CloudWatch metric alarm monitors the Lambda function's `Errors` metric with a threshold of zero and a 60-second evaluation period. This sensitivity is intentional; in a canary window, even a single error warrants investigation. The CodeDeploy deployment group references this alarm in its alarm configuration, so CodeDeploy reads the alarm state during the canary window and triggers rollback automatically. You can adjust the threshold based on your function's baseline error rate. Starting at zero forces clean deployments.
 
 ## Resources Created
 
@@ -86,7 +86,7 @@ pul-py-config-lambda-cicd/
     └── buildspec.yml    # CodeBuild build specification
 ```
 
-Each module exposes one or more `create_*()` functions that accept a config dict and any dependent resources as parameters. Dependencies are passed explicitly rather than imported globally, making the dependency graph visible in `__main__.py`. Functions return the resource(s) needed by downstream modules — typically a single resource or a tuple for modules that create closely related resources (e.g., `lambda_function.py` returns both the function and its alias).
+Each module exposes one or more `create_*()` functions that accept a config dict and any dependent resources as parameters. Dependencies pass explicitly as arguments, making the dependency graph visible in `__main__.py`. Functions return the resource(s) needed by downstream modules: typically a single resource or a tuple for closely related resources (e.g., `lambda_function.py` returns both the function and its alias).
 
 ## Prerequisites
 
@@ -104,16 +104,16 @@ pip install -r requirements.txt
 
 ## Bootstrap Sequence
 
-The pipeline has a chicken-and-egg dependency on first deployment. CodeDeploy requires a Lambda function with a published version. The Lambda function requires a container image in ECR. ECR is empty until CodeBuild runs. CodeBuild does not run until the pipeline exists.
+The pipeline has a circular dependency on first deployment. CodeDeploy requires a Lambda function with a published version. The Lambda function requires a container image in ECR. ECR starts empty, and CodeBuild only runs once the pipeline exists.
 
-1. Run `pulumi up` — ECR and IAM roles create successfully; Lambda may fail because no image exists yet
+1. Run `pulumi up`. ECR and IAM roles create successfully; Lambda may fail because it requires an existing container image.
 2. Build and push an initial image to ECR:
    ```bash
    aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
    docker build -t ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/PROJECT-ENV-lambda:initial example/
    docker push ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/PROJECT-ENV-lambda:initial
    ```
-3. Run `pulumi up` again — Lambda and all remaining resources create successfully
+3. Run `pulumi up` again. Lambda and all remaining resources create successfully.
 4. Activate the CodeStar Connection in the AWS Console under **Developer Tools → Connections**
 
 After this one-time bootstrap, every push to the configured branch triggers the full automated pipeline.
@@ -133,10 +133,10 @@ pulumi up
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `project_name` | — | Project name used as prefix for all resource names |
+| `project_name` | (required) | Project name used as prefix for all resource names |
 | `environment` | `dev` | Environment name (dev, staging, prod) |
-| `github_repo_owner` | — | GitHub repository owner or organization |
-| `github_repo_name` | — | GitHub repository name |
+| `github_repo_owner` | (required) | GitHub repository owner or organization |
+| `github_repo_name` | (required) | GitHub repository name |
 | `github_branch` | `main` | Branch that triggers the pipeline |
 | `lambda_memory_size` | `256` | Lambda memory in MB (128–10240) |
 | `lambda_timeout` | `30` | Lambda timeout in seconds (1–900) |
@@ -158,11 +158,11 @@ pulumi up
 
 Common modifications:
 
-- **Add a test stage** — Insert a CodeBuild action between Build and Deploy that runs your test suite against the newly built image
-- **Add manual approval** — Insert a Manual Approval action before Deploy for human sign-off on production deployments
-- **Multiple environments** — Use Pulumi stack references to deploy dev/staging/prod pipelines from the same program
-- **Cross-account deployment** — Add cross-account IAM roles and modify the CodeDeploy action to assume a role in the target account
-- **Notifications** — Add an SNS topic and CodePipeline notification rule for Slack/email alerts on pipeline success or failure
+- **Add a test stage:** Insert a CodeBuild action between Build and Deploy that runs your test suite against the newly built image.
+- **Add manual approval:** Insert a Manual Approval action before Deploy for human sign-off on production deployments.
+- **Multiple environments:** Use Pulumi stack references to deploy dev/staging/prod pipelines from the same program.
+- **Cross-account deployment:** Add cross-account IAM roles and modify the CodeDeploy action to assume a role in the target account.
+- **Notifications:** Add an SNS topic and CodePipeline notification rule for Slack/email alerts on pipeline success or failure.
 
 ## Related
 
